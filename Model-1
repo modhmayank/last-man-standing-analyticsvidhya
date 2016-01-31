@@ -1,0 +1,78 @@
+# install R package and updating R.
+install.packages("installr") 
+setInternet2(TRUE)
+installr::updateR()
+
+# Loading libraries
+install.packages('readr')
+install.packages('caTools')
+install.packages('xgboost')
+install.packages('tm')
+install.packages('caret')
+install.packages('magrittr')
+install.packages('data.table')
+install.packages('rpart')
+install.packages('DMwR')
+library(readr)
+library(caTools)
+library(xgboost)
+library(tm)
+library(caret)
+library(magrittr)
+library(data.table)
+library(rpart)
+
+#set working directory 
+setwd('D:/Analytics_Competitions/Analytics_Vidhya/Last Man Standing')  
+
+#load data
+train_original <- read.csv('Train_Set.csv') 
+test_original <- read.csv('Test_Set.csv')  
+
+#check for missing values (if any) 
+table(is.na(train_original))
+table(is.na(test_original))
+
+#KNN imputation for missing values
+library(DMwR)
+clean_Train_Set <- knnImputation(train_original, k = 10, scale = T, meth = "weighAvg", distData = NULL)
+summary(clean_Train_Set)
+clean_Test_Set <- knnImputation(test_original, k = 10, scale = T, meth = "weighAvg", distData = train_original[1:9])
+summary(clean_Test_Set)
+
+# List of Column Names
+feature.names <- names(clean_Train_Set)[3:ncol(clean_Train_Set)-1]
+
+cat("assuming text variables are categorical & replacing them with numeric ids\n")
+for (f in feature.names) {
+  if (class(clean_Train_Set[[f]])=="character") {
+    levels <- unique(c(clean_Train_Set[[f]], clean_Test_Set[[f]]))
+    clean_Train_Set[[f]] <- as.integer(factor(clean_Train_Set[[f]], levels=levels))
+    clean_Test_Set[[f]]  <- as.integer(factor(clean_Test_Set[[f]],  levels=levels))
+  }
+}
+
+# Missing values
+#cat("replacing missing values with -1\n")
+#train[is.na(train)] <- -1
+#test[is.na(test)]   <- -1
+
+cat("training a XGBoost classifier\n")
+clf <- xgboost(data        = data.matrix(clean_Train_Set[,feature.names]),
+               label       = clean_Train_Set$Crop_Damage,
+               nrounds     = 50,
+               objective   = "multi:softmax",
+               eval_metric = "merror",
+               num_class=3)
+
+# Creating submission file
+submission <- data.frame(ID=clean_Test_Set$ID)
+submission$Crop_Damage <- predict(clf, data.matrix(clean_Test_Set[,feature.names]))
+
+cat("saving the submission file\n")
+write_csv(submission, "xgboost_submission.csv")
+
+# Can do feature selection using significant features
+importance_matrix <- xgb.importance(feature.names, model = clf)
+xgb.plot.importance(importance_matrix)
+
